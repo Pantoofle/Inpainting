@@ -29,18 +29,6 @@ void ex_based_inpainting(const char *src_path, const char *mask_path,
   vector<vector<double>> data =
       vector<vector<double>>(width, vector<double>(height, 0.));
 
-  // The vector containing n(p)
-  vector<vector<pair<double, double>>> normal_vect =
-      vector<vector<pair<double, double>>>(
-          width,
-          vector<pair<double, double>>(height, pair<double, double>(0., 0.)));
-
-  // The vector containing \delta I_p^{\bot}
-  vector<vector<pair<double, double>>> grad =
-      vector<vector<pair<double, double>>>(
-          width,
-          vector<pair<double, double>>(height, pair<double, double>(0., 0.)));
-
   // INITIATE CONFIDENCE/DATA/FRONTIERE
   clog << "Initiate the values." << endl;
   for (int i = 0; i < width; i++) {
@@ -68,14 +56,18 @@ void ex_based_inpainting(const char *src_path, const char *mask_path,
   // ALGO
   clog << "Starting main loop" << endl;
   while (frontiere_points != 0) {
-    // Update P(p) for points in the front
+    // Update P(p) for points in the front and find the argmax patch
+    int max_i = 0;
+    int max_j = 0;
+    double max_P = 0.;
+
     for (int i = 0; i < width; i++) {
       for (int j = 0; j < height; j++) {
         // Keep only the frontiere points
         if (frontiere(i, j, 0) != 1)
           continue;
 
-        // At the frontiere, update C(p) and D(p)
+        // At the frontiere, update C(p), D(p) and find the max patch
 
         // Update C(p)
         // Sum the confidence values on the patch
@@ -85,7 +77,7 @@ void ex_based_inpainting(const char *src_path, const char *mask_path,
             continue;
 
           for (int b = -HALF_PATCH; b < HALF_PATCH; b++) {
-            if (i + b < 0 || i + b >= width)
+            if (j + b < 0 || j + b >= width)
               continue;
             if (mask(i + a, j + b, 0) != 0.)
               c += confidence[i + a][j + b];
@@ -96,7 +88,76 @@ void ex_based_inpainting(const char *src_path, const char *mask_path,
 
         // Update D(p)
         data[i][j] =
-            norm(vect_prod(grad[i][j], normal_vect[i][j])) / (GRAIN * CHANNEL);
+            norm(vect_prod(grad(result, i, j), normal_vect(frontiere, i, j))) /
+            (GRAIN * CHANNEL);
+
+        if (confidence[i][j] * data[i][j] > max_P) {
+          max_P = confidence[i][j] * data[i][j];
+          max_i = i;
+          max_j = j;
+        }
+      }
+    }
+
+    // The maximal patch is at max_i, max_j
+    // We look for the patch p' in the image that minimises d(\psi_p, \psi_p')
+    int opt_i = 0;
+    int opt_j = 0;
+    int opt_d = INT_MAX;
+    for (int i = 0; i < width; i++) {
+      for (int j = 0; j < height; j++) {
+        // For each point, we compute the distance of the patch
+        int d = 0;
+        for (int a = -HALF_PATCH; a < HALF_PATCH; a++) {
+          if (i + a < 0 || i + a >= width)
+            continue;
+
+          for (int b = -HALF_PATCH; b < HALF_PATCH; b++) {
+            if (j + b < 0 || j + b >= width)
+              continue;
+            // If the pixel is already filled, compute the distance
+            if (mask(max_i + a, max_j + b, 0) != 0 &&
+                mask(i + a, j + b, 0) != 0) {
+              for (int c = 0; c < CHANNEL; c++)
+                d +=
+                    (result(i + a, j + b, c) -
+                     result(max_i + a, max_j + b, c)) *
+                    (result(i + a, j + b, c) - result(max_i + a, max_j + b, c));
+            }
+          }
+        } // End of patch distance computation
+
+        if (d < opt_d) {
+          d = opt_d;
+          opt_i = i;
+          opt_j = j;
+        }
+      }
+    }
+
+    // We have the optimal patch. Now, copy it
+    for (int a = -HALF_PATCH; a < HALF_PATCH; a++) {
+      if (opt_i + a < 0 || opt_i + a >= width)
+        continue;
+      if (max_i + a < 0 || max_i + a >= width)
+        continue;
+
+      for (int b = -HALF_PATCH; b < HALF_PATCH; b++) {
+        if (opt_j + b < 0 || opt_j + b >= width)
+          continue;
+        if (max_j + b < 0 || max_j + b >= width)
+          continue;
+
+        if (mask(opt_i + a, opt_j + b, 0) != 0 &&
+            mask(max_i + a, max_j + b, 0) != 0) {
+
+          if (frontiere(max_i + a, max_j + b, 0) == 1) {
+            frontiere(max_i + a, max_j + b, 0) = 0;
+            frontiere_points--;
+          }
+          for (int c = 0; c < CHANNEL; c++)
+            result(max_i + a, max_j + b, c) = result(opt_i + a, opt_j + b, c);
+        }
       }
     }
   }
@@ -114,4 +175,12 @@ double norm(pair<double, double> v) {
 
 pair<double, double> vect_prod(pair<double, double> a, pair<double, double> b) {
   return pair<double, double>(get<0>(a) * get<0>(b), get<1>(a) * get<1>(b));
+}
+
+pair<double, double> grad(CImg<int> &img, int i, int j) {
+  return pair<double, double>(0., 0.);
+}
+
+pair<double, double> normal_vect(CImg<int> &img, int i, int j) {
+  return pair<double, double>(0., 0.);
 }
