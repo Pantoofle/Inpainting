@@ -2,6 +2,7 @@
 #define exemplar_based_hpp_INCLUDED
 
 #include <climits>
+#include <cstdlib>
 #include <iostream>
 #include <stdexcept>
 #include <tuple>
@@ -10,15 +11,13 @@
 
 #include "CImg.h"
 
-#define PATCH_SIZE 9
-#define HALF_PATCH 4
 #define GRAIN 256
 #define CHANNEL 3
 #define DIM 2
 
 using namespace cimg_library;
 
-void ex_based_inpainting(const char *, const char *, const char *);
+void ex_based_inpainting(const char *, const char *, const char *, int);
 
 double norm(std::pair<double, double> v);
 std::pair<double, double> vect_prod(std::pair<double, double> a,
