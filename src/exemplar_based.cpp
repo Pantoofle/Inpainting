@@ -3,8 +3,6 @@
 using namespace cimg_library;
 using namespace std;
 
-enum class Pxl_stat : char { Known, Filled, Frontiere, Empty };
-
 void ex_based_inpainting(const char *src_path, const char *mask_path,
                          const char *result_path, int patch_size) {
 
@@ -41,9 +39,9 @@ void ex_based_inpainting(const char *src_path, const char *mask_path,
   for (int i = 0; i < width; i++) {
     for (int j = 0; j < height; j++) {
       // If we are in the zone to fill
-      if (mask(i, j, 0) == 0) {
+      if (mask(i, j, 0) < 20) {
         // Erase the previous value
-        result(i, j, 0) = result(i, j, 1) = result(i, j, 2) = 0;
+        result(i, j, 0, 0) = result(i, j, 0, 1) = result(i, j, 0, 2) = 0;
         status[i][j] = Pxl_stat::Empty;
         // Check if at frontiere
         if ((i > 0 && mask(i - 1, j, 0) != 0) ||
@@ -60,7 +58,16 @@ void ex_based_inpainting(const char *src_path, const char *mask_path,
     }
   }
 
-  result.save("../img/start.jpg");
+  // for (int c = 0; c < CHANNEL; c++)
+  // clog << "Pixel " << result(0, 0, 0, c) << endl;
+
+  // pair<double, double> g = grad(result, status, 0, 0, half_patch);
+  // clog << "Grad :" << get<0>(g) << " and " << get<1>(g) << endl;
+
+  // while (true) {
+  //}
+
+  // result.save("../img/start.jpg");
 
   // ALGO
   clog << "Frontiere points : " << frontiere_points << endl;
@@ -71,6 +78,7 @@ void ex_based_inpainting(const char *src_path, const char *mask_path,
     int max_j = -1;
     double max_P = -1.;
 
+    //#pragma omp parallel for
     for (int i = 0; i < width; i++) {
       for (int j = 0; j < height; j++) {
         // Keep only the frontiere points
@@ -90,13 +98,26 @@ void ex_based_inpainting(const char *src_path, const char *mask_path,
         confidence[i][j] = c / (patch_size * patch_size);
 
         double data;
-        // data =
-        // norm(vect_prod(grad(result, i, j), normal_vect(frontiere, i, j)))/
-        //(GRAIN * CHANNEL);
-        data = 1.;
+        pair<double, double> g, nv;
+        g = grad(result, status, i, j, half_patch);
+        nv = normal_vect(status, i, j, half_patch);
 
-        if (confidence[i][j] * data > max_P) {
-          max_P = confidence[i][j] * data;
+        // clog << "Grad :" << get<0>(g) << ", " << get<1>(g) << endl;
+        // clog << "NVec :" << get<0>(nv) << ", " << get<1>(nv) << endl;
+
+        data = vect_scal(g, nv) / (GRAIN * CHANNEL);
+
+        // if (data != 0)
+        // cout << "Data : " << data << endl;
+
+        double P = data * confidence[i][j];
+        // clog << i << " - " << j << " -> P: " << P << " (c: " <<
+        // confidence[i][j]
+        //<< ", d:" << data << ")" << endl;
+
+        if (P > max_P) {
+          max_P = P;
+          // clog << "Update max" << endl;
           max_i = i;
           max_j = j;
         }
@@ -110,6 +131,8 @@ void ex_based_inpainting(const char *src_path, const char *mask_path,
     int opt_i = -1;
     int opt_j = -1;
     unsigned long long opt_d = LONG_LONG_MAX;
+
+    //#pragma omp parallel for
     for (int i = half_patch; i < width - half_patch; i++) {
       for (int j = half_patch; j < height - half_patch; j++) {
         if (i == max_i && j == max_j)
@@ -131,10 +154,10 @@ void ex_based_inpainting(const char *src_path, const char *mask_path,
             if (status[max_i + a][max_j + b] == Pxl_stat::Known ||
                 status[max_i + a][max_j + b] == Pxl_stat::Filled) {
               for (int c = 0; c < CHANNEL; c++) {
-                d +=
-                    (result(i + a, j + b, c) -
-                     result(max_i + a, max_j + b, c)) *
-                    (result(i + a, j + b, c) - result(max_i + a, max_j + b, c));
+                d += (result(i + a, j + b, 0, c) -
+                      result(max_i + a, max_j + b, 0, c)) *
+                     (result(i + a, j + b, 0, c) -
+                      result(max_i + a, max_j + b, 0, c));
               } // for channel
             }   // if filled
           }     // for b
@@ -181,7 +204,8 @@ void ex_based_inpainting(const char *src_path, const char *mask_path,
           }
           status[max_i + a][max_j + b] = Pxl_stat::Filled;
           for (int c = 0; c < CHANNEL; c++)
-            result(max_i + a, max_j + b, c) = result(opt_i + a, opt_j + b, c);
+            result(max_i + a, max_j + b, 0, c) =
+                result(opt_i + a, opt_j + b, 0, c);
         }
       }
     }
@@ -211,7 +235,7 @@ void ex_based_inpainting(const char *src_path, const char *mask_path,
           continue;
         if (status[max_i + a][max_j + b] == Pxl_stat::Known)
           continue;
-        confidence[max_i + a][max_j + b] = confidence[max_i + a][max_j + b];
+        confidence[max_i + a][max_j + b] = confidence[max_i][max_j];
       }
     }
 
@@ -256,50 +280,33 @@ void ex_based_inpainting(const char *src_path, const char *mask_path,
         }
       }
     }
-    clog << "Frontiere points : " << frontiere_points << endl;
+    clog << "Frontiere points left : " << frontiere_points << endl;
     result.save(result_path);
 
-    // Update Confidence value on the patch
-    c = 0.;
-    for (int a = -half_patch; a <= half_patch; a++) {
-      if (max_i + a < 0 || max_i + a >= width)
-        continue;
-
-      for (int b = -half_patch; b <= half_patch; b++) {
-        if (max_j + b < 0 || max_j + b >= height)
-          continue;
-        if (status[max_i + a][max_j + b] == Pxl_stat::Known ||
-            status[max_i + a][max_j + b] == Pxl_stat::Filled)
-          c += confidence[max_i + a][max_j + b];
-      }
-    }
-    // Compute the new C(p)
-    confidence[max_i][max_j] = c / (patch_size * patch_size);
-
-    CImg<int> canvas(width, height, 1, 3, 0);
-    for (int i = 0; i < width; i++) {
-      for (int j = 0; j < height; j++) {
-        switch (status[i][j]) {
-        case Pxl_stat::Filled:
-          canvas(i, j, 0) = 255;
-          break;
-        case Pxl_stat::Frontiere:
-          canvas(i, j, 1) = 255;
-          break;
-        case Pxl_stat::Empty:
-          canvas(i, j, 2) = 255;
-          break;
-        case Pxl_stat::Known:
-          canvas(i, j, 2) = 0;
-          break;
-        }
-        if (i == max_i && j == max_j)
-          canvas(i, j, 1) = canvas(i, j, 2) = 255;
-        if (i == opt_i && j == opt_j)
-          canvas(i, j, 0) = canvas(i, j, 2) = 255;
-      }
-    }
-    canvas.save("../img/can1.jpg");
+    // CImg<int> canvas(width, height, 1, 3, 0);
+    // for (int i = 0; i < width; i++) {
+    // for (int j = 0; j < height; j++) {
+    // switch (status[i][j]) {
+    // case Pxl_stat::Filled:
+    // canvas(i, j, 0) = 255;
+    // break;
+    // case Pxl_stat::Frontiere:
+    // canvas(i, j, 1) = 255;
+    // break;
+    // case Pxl_stat::Empty:
+    // canvas(i, j, 2) = 255;
+    // break;
+    // case Pxl_stat::Known:
+    // canvas(i, j, 2) = 0;
+    // break;
+    //}
+    // if (i == max_i && j == max_j)
+    // canvas(i, j, 1) = canvas(i, j, 2) = 255;
+    // if (i == opt_i && j == opt_j)
+    // canvas(i, j, 0) = canvas(i, j, 2) = 255;
+    //}
+    //}
+    // canvas.save("../img/can1.jpg");
   }
   // END_ALGO
 
@@ -313,20 +320,20 @@ double norm(pair<double, double> v) {
   return sqrt(get<0>(v) * get<0>(v) + get<1>(v) * get<1>(v));
 }
 
-pair<double, double> vect_prod(pair<double, double> a, pair<double, double> b) {
-  return pair<double, double>(get<0>(a) * get<0>(b), get<1>(a) * get<1>(b));
+double vect_scal(pair<double, double> a, pair<double, double> b) {
+  return get<0>(a) * get<0>(b) + get<1>(a) * get<1>(b);
 }
 
 pair<double, double> grad(CImg<int> &img, vector<vector<Pxl_stat>> &status,
                           int i, int j, int half_patch) {
-  int gx = 0.;
-  int gy = 0.;
-  for (int a = -half_patch + 1; a <= half_patch; a++) {
-    if (i + a < 0 || i + a >= img.width())
+  int gx = 0;
+  int gy = 0;
+  for (int a = -half_patch; a <= half_patch; a++) {
+    if (i + a - 1 < 0 || i + a >= img.width())
       continue;
 
-    for (int b = -half_patch + 1; b <= half_patch; b++) {
-      if (j + b < 0 || j + b >= img.height())
+    for (int b = -half_patch; b <= half_patch; b++) {
+      if (j + b - 1 < 0 || j + b >= img.height())
         continue;
 
       if (status[i + a][j + b] == Pxl_stat::Empty ||
@@ -336,91 +343,50 @@ pair<double, double> grad(CImg<int> &img, vector<vector<Pxl_stat>> &status,
           status[i + a][j + b - 1] == Pxl_stat::Empty ||
           status[i + a][j + b - 1] == Pxl_stat::Frontiere)
         continue;
-
       for (int c = 0; c < CHANNEL; c++) {
-        gx += abs(img(i + a, j + b, c) - img(i + a - 1, j + b, c));
-        gy += abs(img(i + a, j + b, c) - img(i + a, j + b - 1, c));
+
+        // clog << "i':" << i + a << ", j':" << j + b << endl;
+        // clog << "d1:"
+        //<< abs(img(i + a, j + b, 0, c) - img(i + a - 1, j + b, 0, c))
+        //<< endl;
+        // clog << "d2:"
+        //<< abs(img(i + a, j + b, 0, c) - img(i + a, j + b - 1, 0, c))
+        //<< endl;
+
+        gx += abs(img(i + a, j + b, 0, c) - img(i + a - 1, j + b, 0, c));
+        gy += abs(img(i + a, j + b, 0, c) - img(i + a, j + b - 1, 0, c));
       }
     }
   }
-  return pair<double, double>((double)gx, (double)gy);
+  // if (gx != 0 or gy != 0)
+  // clog << "Ping" << endl;
+  return pair<double, double>((double)gy, (double)gx);
 }
 
 pair<double, double> normal_vect(vector<vector<Pxl_stat>> &status, int i, int j,
                                  int half_patch) {
-  int gx = 0.;
-  int gy = 0.;
-  for (int a = -half_patch + 1; a <= half_patch; a++) {
-    if (i + a < 0 || i + a >= img.width())
+
+  int nx = 0;
+  int ny = 0;
+  for (int a = -half_patch; a <= half_patch; a++) {
+    if (i + a < 0 || i + a >= status.size())
       continue;
 
-    for (int b = -half_patch + 1; b <= half_patch; b++) {
-      if (j + b < 0 || j + b >= img.height())
+    for (int b = -half_patch; b <= half_patch; b++) {
+      if (j + b < 0 || j + b >= (status[0]).size())
         continue;
 
-      if (status[i + a][j + b] == Pxl_stat::Empty ||
-          status[i + a][j + b] == Pxl_stat::Frontiere ||
-          status[i + a - 1][j + b] == Pxl_stat::Empty ||
-          status[i + a - 1][j + b] == Pxl_stat::Frontiere ||
-          status[i + a][j + b - 1] == Pxl_stat::Empty ||
-          status[i + a][j + b - 1] == Pxl_stat::Frontiere)
-        continue;
-
-      for (int c = 0; c < CHANNEL; c++) {
-        gx += abs(img(i + a, j + b, c) - img(i + a - 1, j + b, c));
-        gy += abs(img(i + a, j + b, c) - img(i + a, j + b - 1, c));
+      if (status[i + a][j + b] == Pxl_stat::Frontiere) {
+        nx += abs(a);
+        ny += abs(b);
       }
     }
   }
-  return pair<double, double>((double)gx, (double)gy);
-  int gx = 0.;
-  int gy = 0.;
-  for (int a = -half_patch + 1; a <= half_patch; a++) {
-    if (i + a < 0 || i + a >= img.width())
-      continue;
 
-    for (int b = -half_patch + 1; b <= half_patch; b++) {
-      if (j + b < 0 || j + b >= img.height())
-        continue;
-
-      if (status[i + a][j + b] == Pxl_stat::Empty ||
-          status[i + a][j + b] == Pxl_stat::Frontiere ||
-          status[i + a - 1][j + b] == Pxl_stat::Empty ||
-          status[i + a - 1][j + b] == Pxl_stat::Frontiere ||
-          status[i + a][j + b - 1] == Pxl_stat::Empty ||
-          status[i + a][j + b - 1] == Pxl_stat::Frontiere)
-        continue;
-
-      for (int c = 0; c < CHANNEL; c++) {
-        gx += abs(img(i + a, j + b, c) - img(i + a - 1, j + b, c));
-        gy += abs(img(i + a, j + b, c) - img(i + a, j + b - 1, c));
-      }
-    }
-  }
-  return pair<double, double>((double)gx, (double)gy);
-  for (int a = -half_patch + 1; a <= half_patch; a++) {
-    if (i + a < 0 || i + a >= img.width())
-      continue;
-
-    for (int b = -half_patch + 1; b <= half_patch; b++) {
-      if (j + b < 0 || j + b >= img.height())
-        continue;
-
-      if (status[i + a][j + b] == Pxl_stat::Empty ||
-          status[i + a][j + b] == Pxl_stat::Frontiere ||
-          status[i + a - 1][j + b] == Pxl_stat::Empty ||
-          status[i + a - 1][j + b] == Pxl_stat::Frontiere ||
-          status[i + a][j + b - 1] == Pxl_stat::Empty ||
-          status[i + a][j + b - 1] == Pxl_stat::Frontiere)
-        continue;
-
-      for (int c = 0; c < CHANNEL; c++) {
-        gx += abs(img(i + a, j + b, c) - img(i + a - 1, j + b, c));
-        gy += abs(img(i + a, j + b, c) - img(i + a, j + b - 1, c));
-      }
-    }
-  }
-  return pair<double, double>((double)gx, (double)gy);
-    int half_patch, int i, int j) {
-  return pair<double, double>(1., 1.);
+  // Normalize the vector
+  double N = norm(pair<double, double>((double)nx, (double)ny));
+  if (N != 0.)
+    return pair<double, double>(((double)nx) / N, ((double)ny) / N);
+  else
+    return pair<double, double>(((double)nx), ((double)ny));
 }
