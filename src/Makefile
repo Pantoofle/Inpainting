@@ -1,10 +1,11 @@
 INCLUDES=-I ../CImg/
 LD_LIBS =-lm -lpthread -lX11
-CXX_FLAGS= -g -Wall -Wpedantic
+CXX_FLAGS= -g -O2 -Wall -Wpedantic -fopenmp
 
 TARGET=inpaint.out
+SIZE?=11
 
-CXX=clang++
+CXX=g++
 
 
 all: $(TARGET)
@@ -16,9 +17,11 @@ $(TARGET): exemplar_based.o main.o
 	$(CXX) $(CXX_FLAGS) $(INCLUDES) $< -c -o $@
 
 run: $(TARGET)
-	./$(TARGET) ../img/img1.jpg ../img/msk1.jpg ../img/res1.jpg
-	feh ../img/res1.jpg
+	./$(TARGET) ../img/input.jpg ../img/msk.jpg ../img/res.jpg $(SIZE)
+	feh ../img/res.jpg
 
+vg: $(TARGET)
+	valgrind ./$(TARGET) ../img/input.jpg ../img/msk.jpg ../img/res.jpg $(SIZE)
 
 .PHONY: clean
 clean:
