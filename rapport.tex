@@ -85,6 +85,12 @@ différents coeurs d'un processeur, ou utiliser la puissance d'une carte graphiq
 pour accélerer ce process.
 Cet algorithme se parallélise donc très bien.
 
+Une tentative de parallélisation a été faite avec l'outil automatique openmp.
+Cependant, le join final des différents threads entraine une perte d'information,
+le maximum n'est pas retourné comme il faut. La correction est en cours mais 
+n'est pas encore fonctionnelle. Il faut l'implémenter à la main, sans passer
+par les macros de la lib openMP. Il n'y a donc pas de parallélisation pour l'instant.
+
 \subsection{Contrôle sur le grain}
 Comme les patchs sont de taille fixée par l'utilisateur, ce dernier peut choisir
 la taille adaptée à ses besoins. Un patch grand rendra l'algorithme plus rapide,
